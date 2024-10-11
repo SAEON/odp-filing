@@ -5,29 +5,29 @@ Nextcloud instance, with file integrity checks.
 
 ## Development
 
-When developing locally against a Nextcloud instance on the dev
-network, use SSHFS to mount the Nextcloud upload directory to your
-local machine.
+Use PyCharm Remote Development to run/debug this service alongside
+a Nextcloud instance on a dev server. You will need to connect as
+the HTTP user (`www-data` on Debian/Ubuntu), to permit writing files
+to the Nextcloud data directory and to permit execution of the
+Nextcloud OCC command.
 
-### Nextcloud dev server setup
+This requires a bit of preliminary setup on the server (as root)...
 
-On the Nextcloud dev server, add your user to the `www-data` group:
+Stop Apache and kill any lingering `www-data` processes:
 
-    sudo usermod -aG www-data user
+    systemctl stop apache2
+    pkill -u www-data
 
-Then, add write permission for the `www-data` group to the upload
-directory that you created in Nextcloud, for example:
+Set a password for `www-data`:
 
-    sudo chmod g+w /var/www/html/nextcloud/data/saeonrepo/files/Upload
+    passwd www-data
 
-### Local machine setup
+Enable logins and set up home dir for `www-data`:
 
-On your local machine, mount the Nextcloud upload directory using SSHFS:
+    usermod -d /home/www-data -s /bin/bash www-data
+    mkdir /home/www-data
+    chown www-data:www-data /home/www-data
 
-    sshfs \
-        user@192.168.115.74:/var/www/html/nextcloud/data/saeonrepo/files/Upload \
-        /home/user/mnt/devrepo_upload/
+Restart Apache:
 
-Use the following command to unmount the directory:
-
-    fusermount -u /home/user/mnt/devrepo_upload
+    systemctl start apache2
