@@ -13,10 +13,12 @@ class NextcloudOCC:
             occ_path: str,
             php_path: str,
             nc_user: str,
+            base_folder: str | PathLike,
     ):
         self.occ_path = occ_path
         self.php_path = php_path
         self.nc_user = nc_user
+        self.base_folder = base_folder
 
     def _execute(
             self,
@@ -33,11 +35,10 @@ class NextcloudOCC:
             print(e)
             raise
 
-    def rescan_path(self, relative_path: str | PathLike):
-        """Rescan the given file/folder path, which is relative to
-        the Nextcloud user's files root."""
+    def rescan_path(self, path: str | PathLike):
+        """Rescan the given path relative to the base folder."""
         self._execute(
             'files:scan',
-            [f'--path=/{self.nc_user}/files/{relative_path}'],
+            [f'--path=/{self.nc_user}/files/{self.base_folder}/{path}'],
             [],
         )
