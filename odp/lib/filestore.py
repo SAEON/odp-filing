@@ -3,11 +3,11 @@ from os import PathLike
 from pathlib import Path
 
 
-class FileStoreException(Exception):
+class FilestoreError(Exception):
     pass
 
 
-class FileStore:
+class Filestore:
     """File management for a Linux-based file system."""
 
     def __init__(self, base_dir: str | PathLike):
@@ -19,21 +19,21 @@ class FileStore:
         try:
             upload_path.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
         except OSError as e:
-            raise FileStoreException(
+            raise FilestoreError(
                 f'Error creating directory at {Path(path).parent}: {e}'
-            )
+            ) from e
 
         try:
             with open(upload_path, 'wb') as f:
                 f.write(data)
         except OSError as e:
-            raise FileStoreException(
+            raise FilestoreError(
                 f'Error creating file at {path}: {e}'
-            )
+            ) from e
 
         with open(upload_path, 'rb') as f:
             if sha256 != hashlib.sha256(f.read()).hexdigest():
-                raise FileStoreException(
+                raise FilestoreError(
                     f'Error creating file at {path}: checksum verification failed'
                 )
 
@@ -41,6 +41,6 @@ class FileStore:
             with open(f'{upload_path}.sha256', 'wt') as f:
                 f.write(f'{sha256} {upload_path.name}\n')
         except OSError as e:
-            raise FileStoreException(
+            raise FilestoreError(
                 f'Error creating checksum file at {path}.sha256: {e}'
-            )
+            ) from e

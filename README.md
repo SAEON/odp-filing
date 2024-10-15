@@ -1,15 +1,16 @@
 # ODP Filing
 
-File storage service enabling fast uploads to an ODP-integrated
-Nextcloud instance, with file integrity checks.
+File storage service enabling fast uploads to a file server,
+with file integrity checks.
 
-## Development
+## Nextcloud integration
+
+### Development
 
 Use PyCharm Remote Development to run/debug this service alongside
 a Nextcloud instance on a dev server. You will need to connect as
-the HTTP user (`www-data` on Debian/Ubuntu), to permit writing files
-to the Nextcloud data directory and to permit execution of the
-Nextcloud OCC command.
+the HTTP user (`www-data` on Debian/Ubuntu) to permit writing files
+to the Nextcloud data directory.
 
 This requires a bit of preliminary setup on the server (as root)...
 
@@ -31,3 +32,17 @@ Enable logins and set up home dir for `www-data`:
 Restart Apache:
 
     systemctl start apache2
+
+### Deployment
+
+Create a cron job to synchronize the Nextcloud DB with the
+file system.
+
+Edit the crontab for the HTTP user:
+
+    sudo crontab -e -u www-data
+
+For example, to rescan all files under the `Upload` folder of
+the Nextcloud user `saeonrepo`, every 10 minutes:
+
+    */10 * * * * /usr/bin/php /var/www/html/nextcloud/occ files:scan --quiet --path=/saeonrepo/files/Upload
