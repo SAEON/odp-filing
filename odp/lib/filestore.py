@@ -73,6 +73,7 @@ class Filestore:
                     destpath = self.base_dir / relpath
                     if destpath.exists():
                         errors += [f'Destination path {relpath} already exists']
+                    if errors:
                         continue
                     with open(srcpath, 'rb') as f:
                         filehash = hashlib.sha256(f.read()).hexdigest()
