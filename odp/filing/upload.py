@@ -27,8 +27,9 @@ def _get_file(request: Request, arg: str) -> File:
 
 
 def _get_arg(request: Request, arg: str, default=None) -> str:
-    if (val := request.args.get(arg)) is None and default is None:
-        raise SanicException(f"Expecting arg '{arg}'", status_code=400)
+    if (val := request.args.get(arg)) is None:
+        if (val := default) is None:
+            raise SanicException(f"Expecting arg '{arg}'", status_code=400)
     return val
 
 
