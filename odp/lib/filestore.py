@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 from typing import ContextManager
 
 FileInfo = namedtuple('FileInfo', (
-    'relpath', 'size', 'sha256'
+    'path', 'size', 'sha256'
 ))
 
 
@@ -35,19 +35,19 @@ class Filestore:
         """Write file data to filename within folder relative to the base dir,
         and verify against sha256.
 
-        Return tuple(relpath, size, sha256).
+        Return tuple(path, size, sha256).
         """
-        relpath = Path(folder) / filename
-        destpath = self.base_dir / relpath
+        path = Path(folder) / filename
+        abspath = self.base_dir / path
 
-        if destpath.exists():
-            raise FilestoreError(f'Destination path {relpath} already exists')
+        if abspath.exists():
+            raise FilestoreError(f'Destination path {path} already exists')
 
         with self._save_to_tmpdir(filename, data, sha256) as tmpfile:
-            self._move_to_dest(tmpfile, destpath)
+            self._move_to_dest(tmpfile, path)
 
         return FileInfo(
-            relpath, destpath.stat().st_size, sha256
+            path, abspath.stat().st_size, sha256
         )
 
     def unpack(self, folder: str, filename: str, data: bytes, sha256: str) -> list[FileInfo]:
@@ -55,7 +55,7 @@ class Filestore:
 
         The zip file is verified against sha256 and discarded.
 
-        Return a list of tuple(relpath, size, sha256) for all unpacked files.
+        Return a list of tuple(path, size, sha256) for all unpacked files.
         """
         with self._save_to_tmpdir(filename, data, sha256) as tmpfile:
             unpack_dir = tmpfile.parent / tmpfile.stem
@@ -69,23 +69,23 @@ class Filestore:
             for dirpath, dirnames, filenames in os.walk(unpack_dir):  # TODO: use Path.walk() in Python 3.12
                 for filename in filenames:
                     srcpath = Path(dirpath) / filename
-                    relpath = srcpath.relative_to(unpack_dir)
-                    destpath = self.base_dir / relpath
+                    path = srcpath.relative_to(unpack_dir)
+                    destpath = self.base_dir / path
                     if destpath.exists():
-                        errors += [f'Destination path {relpath} already exists']
+                        errors += [f'Destination path {path} already exists']
                     if errors:
                         continue
                     with open(srcpath, 'rb') as f:
                         filehash = hashlib.sha256(f.read()).hexdigest()
                     files += [FileInfo(
-                        relpath, srcpath.stat().st_size, filehash
+                        path, srcpath.stat().st_size, filehash
                     )]
 
             if errors:
                 raise FilestoreError(errors)
 
             for finfo in files:
-                self._move_to_dest(unpack_dir / finfo.relpath, finfo.relpath)
+                self._move_to_dest(unpack_dir / finfo.path, finfo.path)
 
             return files
 
@@ -107,15 +107,16 @@ class Filestore:
 
             yield tmpfile
 
-    def _move_to_dest(self, srcpath: Path, relpath: Path) -> None:
-        destpath = self.base_dir / relpath
+    def _move_to_dest(self, srcpath: Path, path: Path) -> None:
+        """Move file at srcpath (absolute) to path relative to the base dir."""
+        destpath = self.base_dir / path
         try:
             if not destpath.parent.exists():
                 destpath.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
         except OSError as e:
-            raise FilestoreError(f'Error creating directory at {relpath.parent}: {e}') from e
+            raise FilestoreError(f'Error creating directory at {path.parent}: {e}') from e
 
         try:
             shutil.move(srcpath, destpath)
         except OSError as e:
-            raise FilestoreError(f'Error creating file at {relpath}: {e}') from e
+            raise FilestoreError(f'Error creating file at {path}: {e}') from e

@@ -71,13 +71,13 @@ async def upload_file(request: Request, folder: str) -> HTTPResponse:
     try:
         if unpack:
             result = {
-                finfo.relpath: [finfo.size, finfo.sha256]
+                finfo.path: [finfo.size, finfo.sha256]
                 for finfo in filestore.unpack(folder, filename, file.body, sha256)
             }
         else:
             finfo = filestore.put(folder, filename, file.body, sha256)
             result = {
-                finfo.relpath: [finfo.size, finfo.sha256]
+                finfo.path: [finfo.size, finfo.sha256]
             }
 
     except FilestoreError as e:
