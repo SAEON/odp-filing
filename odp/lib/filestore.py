@@ -14,7 +14,9 @@ FileInfo = namedtuple('FileInfo', (
 
 
 class FilestoreError(Exception):
-    pass
+    def __init__(self, status_code: int, error_detail: str):
+        self.status_code = status_code
+        self.error_detail = error_detail
 
 
 class Filestore:
@@ -31,63 +33,71 @@ class Filestore:
     def __init__(self, base_dir: str | PathLike):
         self.base_dir = Path(base_dir)
 
-    def put(self, folder: str, filename: str, data: bytes, sha256: str) -> FileInfo:
-        """Write file data to filename within folder relative to the base dir,
+    def put(self, path: Path, data: bytes, sha256: str) -> FileInfo:
+        """Write data to a file at path, relative to the base dir,
         and verify against sha256.
 
         Return tuple(path, size, sha256).
         """
-        path = Path(folder) / filename
         abspath = self.base_dir / path
-
         if abspath.exists():
-            raise FilestoreError(f'Destination path {path} already exists')
+            raise FilestoreError(409, f'Path {path} already exists')
 
-        with self._save_to_tmpdir(filename, data, sha256) as tmpfile:
+        with self._save_to_tmpdir(path.name, data, sha256) as tmpfile:
             self._move_to_dest(tmpfile, path)
 
         return FileInfo(
             path, abspath.stat().st_size, sha256
         )
 
-    def unpack(self, folder: str, filename: str, data: bytes, sha256: str) -> list[FileInfo]:
-        """Unpack zipped file data into folder relative to the base dir.
+    def unpack(self, path: Path, data: bytes, sha256: str) -> list[FileInfo]:
+        """Unpack zipped data into the parent directory of path, relative
+        to the base dir.
 
-        The zip file is verified against sha256 and discarded.
+        The uploaded zip file is verified against sha256 and discarded.
 
         Return a list of tuple(path, size, sha256) for all unpacked files.
         """
-        with self._save_to_tmpdir(filename, data, sha256) as tmpfile:
+        with self._save_to_tmpdir(path.name, data, sha256) as tmpfile:
             unpack_dir = tmpfile.parent / tmpfile.stem
             try:
-                shutil.unpack_archive(tmpfile, unpack_dir / folder)
+                shutil.unpack_archive(tmpfile, unpack_dir / path.parent)
             except (OSError, ValueError) as e:
-                raise FilestoreError(f'Error unpacking zip file: {e}') from e
+                raise FilestoreError(422, f'Error unpacking zip file: {e}') from e
 
             files = []
             errors = []
             for dirpath, dirnames, filenames in os.walk(unpack_dir):  # TODO: use Path.walk() in Python 3.12
                 for filename in filenames:
                     srcpath = Path(dirpath) / filename
-                    path = srcpath.relative_to(unpack_dir)
-                    destpath = self.base_dir / path
+                    relpath = srcpath.relative_to(unpack_dir)
+                    destpath = self.base_dir / relpath
                     if destpath.exists():
-                        errors += [f'Destination path {path} already exists']
+                        errors += [f'Path {relpath} already exists']
                     if errors:
                         continue
                     with open(srcpath, 'rb') as f:
                         filehash = hashlib.sha256(f.read()).hexdigest()
                     files += [FileInfo(
-                        path, srcpath.stat().st_size, filehash
+                        relpath, srcpath.stat().st_size, filehash
                     )]
 
             if errors:
-                raise FilestoreError(errors)
+                raise FilestoreError(422, '\n'.join(errors))
 
             for finfo in files:
                 self._move_to_dest(unpack_dir / finfo.path, finfo.path)
 
             return files
+
+    def delete(self, path: Path) -> None:
+        abspath = self.base_dir / path
+        try:
+            os.remove(abspath)
+        except FileNotFoundError as e:
+            raise FilestoreError(404, f'{path} not found') from e
+        except OSError as e:
+            raise FilestoreError(422, f'Error deleting file at {path}: {e}') from e
 
     @contextmanager
     def _save_to_tmpdir(self, filename: str, data: bytes, sha256: str) -> ContextManager[Path]:
@@ -96,14 +106,15 @@ class Filestore:
         directory is deleted upon exiting the context manager."""
         with TemporaryDirectory() as tmpdir:
             try:
-                with open(tmpfile := Path(tmpdir) / filename, 'wb') as f:
+                # ensure lowercase suffix for zip files
+                with open(tmpfile := Path(tmpdir) / filename.lower(), 'wb') as f:
                     f.write(data)
             except OSError as e:
-                raise FilestoreError(f'Error saving uploaded file: {e}') from e
+                raise FilestoreError(422, f'Error saving uploaded file: {e}') from e
 
             with open(tmpfile, 'rb') as f:
                 if sha256 != hashlib.sha256(f.read()).hexdigest():
-                    raise FilestoreError('Error uploading file: checksum verification failed')
+                    raise FilestoreError(422, 'Error uploading file: checksum verification failed')
 
             yield tmpfile
 
@@ -114,9 +125,9 @@ class Filestore:
             if not destpath.parent.exists():
                 destpath.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
         except OSError as e:
-            raise FilestoreError(f'Error creating directory at {path.parent}: {e}') from e
+            raise FilestoreError(422, f'Error creating directory at {path.parent}: {e}') from e
 
         try:
             shutil.move(srcpath, destpath)
         except OSError as e:
-            raise FilestoreError(f'Error creating file at {path}: {e}') from e
+            raise FilestoreError(422, f'Error creating file at {path}: {e}') from e

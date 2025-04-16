@@ -37,50 +37,65 @@ def _get_filestore(request: Request) -> Filestore:
     return Filestore(request.app.config.ODP_UPLOAD_DIR)
 
 
-@bp.put('/<folder:path>')
-async def upload_file(request: Request, folder: str) -> HTTPResponse:
-    """Upload a file to `folder`, relative to the filestore base directory.
+def _validate_path(path: str) -> Path:
+    path = Path(path)
+    if path.is_absolute():
+        raise SanicException('path must be relative', status_code=400)
 
-    If unpack is true, the file is unzipped into `folder`.
+    for part in path.parts:
+        if part != secure_filename(part):
+            raise SanicException('invalid path', status_code=400)
+
+    return path
+
+
+@bp.put('/<path:path>')
+async def upload_file(request: Request, path: str) -> HTTPResponse:
+    """Upload a file to `path`, relative to the filestore base directory.
+
+    If unpack is true, the file is unzipped at the parent of `path`.
 
     The response is a JSON object whose keys are file paths relative
-    to the filestore's base directory, for every file that has been
+    to the filestore base directory, for every file that has been
     created/updated. The corresponding values are length 2 arrays
     of [file size, file hash].
     """
+    path = _validate_path(path)
     file = _get_file(request, 'file')
-    filename = _get_arg(request, 'filename')
     sha256 = _get_arg(request, 'sha256')
     unpack = _get_arg(request, 'unpack', False)
     filestore = _get_filestore(request)
 
-    if '..' in folder:
-        raise SanicException("'..' not allowed in folder", status_code=422)
-
-    if Path(folder).is_absolute():
-        raise SanicException('folder must be relative', status_code=422)
-
-    if not (filename := secure_filename(filename)):
-        raise SanicException('invalid filename', status_code=422)
-
-    if unpack:
-        filename = filename.lower()
-        if Path(filename).suffix != '.zip':
-            raise SanicException('unpack is supported only for zip files', status_code=422)
+    if unpack and path.suffix.lower() != '.zip':
+        raise SanicException('unpack is supported only for zip files', status_code=400)
 
     try:
         if unpack:
             result = {
                 finfo.path: [finfo.size, finfo.sha256]
-                for finfo in filestore.unpack(folder, filename, file.body, sha256)
+                for finfo in filestore.unpack(path, file.body, sha256)
             }
         else:
-            finfo = filestore.put(folder, filename, file.body, sha256)
+            finfo = filestore.put(path, file.body, sha256)
             result = {
                 finfo.path: [finfo.size, finfo.sha256]
             }
 
     except FilestoreError as e:
-        raise SanicException(str(e), status_code=422) from e
+        raise SanicException(e.error_detail, e.status_code) from e
 
     return json(result)
+
+
+@bp.delete('/<path:path>')
+async def delete_file(request: Request, path: str) -> HTTPResponse:
+    """Delete the file at `path`, relative to the filestore base directory."""
+    path = _validate_path(path)
+    filestore = _get_filestore(request)
+
+    try:
+        filestore.delete(path)
+    except FilestoreError as e:
+        raise SanicException(e.error_detail, e.status_code) from e
+
+    return json(None)
