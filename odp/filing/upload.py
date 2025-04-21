@@ -55,6 +55,8 @@ async def upload_file(request: Request, path: str) -> HTTPResponse:
 
     If unpack is true, the file is unzipped at the parent of `path`.
 
+    Existing files are replaced.
+
     The response is a JSON object whose keys are file paths relative
     to the filestore base directory, for every file that has been
     created/updated. The corresponding values are length 2 arrays

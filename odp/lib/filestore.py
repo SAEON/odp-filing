@@ -25,9 +25,6 @@ class Filestore:
     Incoming data are always written first to temporary directories,
     to mitigate against partial failures, filesystem errors and
     denial-of-service attacks.
-
-    If a destination path already exists (whether a file or dir),
-    an exception is raised rather than silently overwriting it.
     """
 
     def __init__(self, base_dir: str | PathLike):
@@ -39,15 +36,12 @@ class Filestore:
 
         Return tuple(path, size, sha256).
         """
-        abspath = self.base_dir / path
-        if abspath.exists():
-            raise FilestoreError(409, f'Path {path} already exists')
-
         with self._save_to_tmpdir(path.name, data, sha256) as tmpfile:
             self._move_to_dest(tmpfile, path)
 
+        size = (self.base_dir / path).stat().st_size
         return FileInfo(
-            path, abspath.stat().st_size, sha256
+            path, size, sha256
         )
 
     def unpack(self, path: Path, data: bytes, sha256: str) -> list[FileInfo]:
@@ -66,24 +60,15 @@ class Filestore:
                 raise FilestoreError(422, f'Error unpacking zip file: {e}') from e
 
             files = []
-            errors = []
             for dirpath, dirnames, filenames in os.walk(unpack_dir):  # TODO: use Path.walk() in Python 3.12
                 for filename in filenames:
                     srcpath = Path(dirpath) / filename
                     relpath = srcpath.relative_to(unpack_dir)
-                    destpath = self.base_dir / relpath
-                    if destpath.exists():
-                        errors += [f'Path {relpath} already exists']
-                    if errors:
-                        continue
                     with open(srcpath, 'rb') as f:
                         filehash = hashlib.sha256(f.read()).hexdigest()
                     files += [FileInfo(
                         relpath, srcpath.stat().st_size, filehash
                     )]
-
-            if errors:
-                raise FilestoreError(422, '\n'.join(errors))
 
             for finfo in files:
                 self._move_to_dest(unpack_dir / finfo.path, finfo.path)
